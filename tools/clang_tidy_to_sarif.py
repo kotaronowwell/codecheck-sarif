@@ -25,6 +25,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sarif_common import build_sarif, make_result, make_rule, relative_uri
+
 # Matches: <file>:<line>:<col>: <level>: <message>
 DIAG_RE = re.compile(
     r'^(?P<file>.+?):(?P<line>\d+):(?P<col>\d+):\s+'
@@ -75,59 +78,35 @@ def help_uri_for(check):
     return f"https://clang.llvm.org/extra/clang-tidy/checks/{group}/{name}.html"
 
 
-def build_sarif(diagnostics, root_abspath):
+def diagnostics_to_sarif(diagnostics, root_abspath):
     rules = {}
     results = []
 
     for d in diagnostics:
-        rel = os.path.relpath(d["file"], root_abspath).replace(os.sep, "/")
+        rel = relative_uri(d["file"], root_abspath)
         check_id = d["check"] or "clang-tidy/note"
 
         if check_id not in rules:
-            rule = {"id": check_id, "shortDescription": {"text": check_id}}
-            uri = help_uri_for(d["check"])
-            if uri:
-                rule["helpUri"] = uri
-            rules[check_id] = rule
+            rules[check_id] = make_rule(check_id, check_id, help_uri_for(d["check"]))
 
         results.append(
-            {
-                "ruleId": check_id,
-                "level": LEVEL_MAP.get(d["level"], "warning"),
-                "message": {"text": d["message"]},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": rel, "uriBaseId": "SRCROOT"},
-                            "region": {
-                                "startLine": d["line"],
-                                "startColumn": d["col"],
-                            },
-                        }
-                    }
-                ],
-            }
+            make_result(
+                check_id,
+                LEVEL_MAP.get(d["level"], "warning"),
+                d["message"],
+                rel,
+                d["line"],
+                d["col"],
+            )
         )
 
-    return {
-        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-        "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "clang-tidy",
-                        "informationUri": "https://clang.llvm.org/extra/clang-tidy/",
-                        "rules": sorted(rules.values(), key=lambda r: r["id"]),
-                    }
-                },
-                "originalUriBaseIds": {
-                    "SRCROOT": {"uri": "file://" + root_abspath.rstrip("/") + "/"}
-                },
-                "results": results,
-            }
-        ],
-    }
+    return build_sarif(
+        "clang-tidy",
+        "https://clang.llvm.org/extra/clang-tidy/",
+        list(rules.values()),
+        results,
+        root_abspath,
+    )
 
 
 def main():
@@ -148,7 +127,7 @@ def main():
 
     root_abspath = os.path.abspath(args.root)
     diagnostics = parse_diagnostics(args.input.readlines())
-    sarif = build_sarif(diagnostics, root_abspath)
+    sarif = diagnostics_to_sarif(diagnostics, root_abspath)
 
     json.dump(sarif, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")

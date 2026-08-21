@@ -8,4 +8,5 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(demo
     src/main.cpp
     src/Calculator.cpp
+    src/Logger.cpp
 )
