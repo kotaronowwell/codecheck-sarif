@@ -1,22 +1,59 @@
----
-# Project-specific coding rules for this demo, checked by clang-tidy.
-# Intentionally scoped to a small, readable set of checks rather than
-# enabling whole check groups.
+# "Today's" recommended baseline clang-tidy configuration for a modern
+# C++17/20 project (checked against LLVM 18-22 era clang-tidy). This is
+# meant as a starting point to copy into your own .clang-tidy and then
+# trim -- it is intentionally broader than the narrowly-scoped .clang-tidy
+# already in this demo project.
+#
+# Design principles:
+#  - Enable whole categories that are broadly useful for any C++ project:
+#    bugprone, cppcoreguidelines, modernize, performance, portability,
+#    readability, and clang-analyzer (the Clang Static Analyzer, which
+#    does real interprocedural analysis -- null derefs, leaks, use-after-
+#    free -- that the purely-syntactic checks above can't catch).
+#  - Explicitly EXCLUDE the checks/groups that are either vendor/project
+#    specific (llvm-*, google-*, fuchsia-*, altera-*, android-*, darwin-*,
+#    linuxkernel-*, objc-*, mpi-*, openmp-*, zircon-*, abseil-*, boost-*)
+#    or that are individually too noisy / too opinionated for most teams
+#    to adopt wholesale on day one.
+#  - Leave WarningsAsErrors empty at first. Turn checks into hard errors
+#    incrementally, once a codebase is clean under them -- flipping
+#    everything to errors on day one just means clang-tidy gets disabled
+#    in CI out of frustration.
+
 Checks: >
   -*,
-  readability-identifier-naming,
-  modernize-use-override,
-  cppcoreguidelines-avoid-magic-numbers,
-  google-build-using-namespace,
-  misc-unused-parameters,
-  performance-unnecessary-value-param,
-  readability-else-after-return
+  bugprone-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  clang-analyzer-*,
+  misc-*,
+
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+
+  -modernize-use-trailing-return-type,
+
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-cstyle-cast,
+
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*'
 FormatStyle: none
 
 CheckOptions:
+  # Keep this project's own naming convention (see the narrower
+  # .clang-tidy at the project root) instead of clang-tidy's defaults.
   - key: readability-identifier-naming.ClassCase
     value: CamelCase
   - key: readability-identifier-naming.FunctionCase
@@ -29,3 +66,19 @@ CheckOptions:
     value: m_
   - key: readability-identifier-naming.ParameterCase
     value: camelBack
+
+  # modernize-use-default-member-init: prefer `int x_ = 0;` over an
+  # initializer-list assignment when both are equally simple.
+  - key: modernize-use-default-member-init.UseAssignment
+    value: '1'
+
+  # readability-redundant-member-init: don't flag a base-class
+  # constructor call in a copy constructor that just repeats the default.
+  - key: readability-redundant-member-init.IgnoreBaseInCopyConstructors
+    value: '1'
+
+  # bugprone-easily-swappable-parameters is valuable but very noisy on
+  # small helper functions; require at least 3 adjacent same-typed
+  # parameters before it fires.
+  - key: bugprone-easily-swappable-parameters.MinimumLength
+    value: '3'
