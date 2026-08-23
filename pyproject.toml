@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codecheck-sarif"
+version = "0.1.0"
+description = "Pluggable project-specific coding-rule checker for C/C++, emitting SARIF 2.1.0. Wraps clang-tidy, runs user-supplied libclang rule plugins, and merges results with any externally-generated SARIF."
+requires-python = ">=3.8"
+dependencies = [
+    "libclang",
+]
+
+[project.scripts]
+codecheck = "codecheck.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+codecheck = ["templates/*.py"]

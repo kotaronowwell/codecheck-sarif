@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "acme-static-analyzer",
+          "informationUri": "https://example.com/acme-static-analyzer",
+          "rules": [
+            {
+              "id": "ACME-VOLATILE-CAST",
+              "shortDescription": { "text": "raw address cast to a volatile pointer without a named constant" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "ACME-VOLATILE-CAST",
+          "level": "note",
+          "message": { "text": "0x40020000 is a bare address; consider a named register map entry" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "/builds/ci/project/blink.c" },
+                "region": { "startLine": 6, "startColumn": 20 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
