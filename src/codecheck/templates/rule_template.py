@@ -18,7 +18,12 @@
 #   ctx.parse(file_path)          -> a libclang TranslationUnit, with
 #                                     compile flags already resolved from
 #                                     compile_commands.json (or a sane
-#                                     C/C++ default if there's no entry)
+#                                     C/C++ default if there's no entry).
+#                                     Cheap to call: every rule looking at
+#                                     this file shares one parse. Don't
+#                                     keep the TU or its Cursors past the
+#                                     end of check() -- they're freed when
+#                                     the run moves to the next file.
 #   ctx.in_project(node)          -> False for anything pulled in from a
 #                                     system header or another library
 #   ctx.result(file_path, line, col, message, level="warning")

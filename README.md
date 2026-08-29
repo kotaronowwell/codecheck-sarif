@@ -169,6 +169,17 @@ def check(ctx, file_path):
     return findings
 ```
 
+Each file is checked against every rule before the run moves on, and
+`ctx.parse()` caches that file's `TranslationUnit` for the duration, so
+ten rules over one file cost **one** libclang parse, not ten -- call
+`ctx.parse()` as freely as you need. Two consequences worth knowing:
+
+- The AST is freed before the next file, so don't hold a `Cursor` past the
+  end of your `check()` (returning `ctx.result(...)` dicts, as above, is
+  always safe).
+- A rule that only needs text and never calls `ctx.parse()` never triggers
+  a parse on its own account.
+
 Scaffold a new one from the annotated starter template:
 
 ```bash

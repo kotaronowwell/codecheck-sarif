@@ -20,8 +20,13 @@ auto-discovered as a rule plugin. It must define:
 `ctx` (a CheckContext) hides all the libclang boilerplate: it already knows
 this project's compile_commands.json (if any), how to fall back to a
 sensible default when a file isn't in it, and which resource-dir fixes
-"stddef.h not found" errors from the pip 'libclang' wheel. A minimal
-plugin is just:
+"stddef.h not found" errors from the pip 'libclang' wheel. Call
+ctx.parse() as freely as you like -- files are checked one at a time
+against every rule, and the resulting TranslationUnit is cached and shared
+for that file, so asking twice (or from ten different rules) costs one
+parse. The flip side: the AST is freed once the run moves to the next
+file, so don't stash Cursors in a module-level global and read them later.
+A minimal plugin is just:
 
     RULE_ID = "myproj/no-goto"
     RULE_DESCRIPTION = "goto is banned; restructure with a loop instead"
@@ -101,7 +106,8 @@ def guess_fallback_args(file_abspath, default_lang):
 
 class CheckContext:
     """Passed into every plugin's check(ctx, file_path). Owns the libclang
-    Index (reused across files/plugins for speed) and knows how to resolve
+    Index, caches the parsed TranslationUnit of the file currently being
+    checked so every rule shares one parse, and knows how to resolve
     compile args for a given file, C or C++, compdb or not."""
 
     def __init__(self, root_abspath, compdb=None, default_lang="c++"):
@@ -110,6 +116,7 @@ class CheckContext:
         self.default_lang = default_lang
         self._index = cindex.Index.create()
         self.current_rule_id = None  # set by run_plugins() before each plugin runs
+        self._tu_cache = {}  # abspath -> TranslationUnit, only for the file being checked
 
     def compile_args(self, file_path):
         file_abspath = os.path.abspath(file_path)
@@ -120,8 +127,27 @@ class CheckContext:
         return guess_fallback_args(file_abspath, self.default_lang)
 
     def parse(self, file_path):
+        """Parse file_path and hand back its libclang TranslationUnit.
+
+        Cached for the duration of one file's turn: run_plugins() checks a
+        file against every rule before moving on, so the first rule to ask
+        pays for the parse and the rest get the same TU back. The parse
+        stays lazy -- a purely textual rule that never calls parse() never
+        triggers one."""
         file_abspath = os.path.abspath(file_path)
-        return self._index.parse(file_abspath, args=self.compile_args(file_abspath))
+        if file_abspath not in self._tu_cache:
+            self._tu_cache[file_abspath] = self._index.parse(
+                file_abspath, args=self.compile_args(file_abspath)
+            )
+        return self._tu_cache[file_abspath]
+
+    def release_tus(self):
+        """Drop the cached TranslationUnits. run_plugins() calls this
+        between files, which is what keeps peak memory at one file's worth
+        of AST instead of the whole file list's. Any Cursor held past this
+        point dangles -- convert findings to ctx.result() dicts before
+        returning them from check(), which plugins do naturally."""
+        self._tu_cache.clear()
 
     def in_project(self, cursor_or_location):
         """True if this AST node's location is inside --root (i.e. not a
@@ -172,22 +198,33 @@ def discover_plugins(rules_dir):
 
 
 def run_plugins(plugins, files, ctx):
-    rules = []
+    """Check every file against every rule.
+
+    The loop is file-outer/rule-inner on purpose: all the rules looking at
+    one file share the single TranslationUnit ctx.parse() caches for it, so
+    the cost is one libclang parse per file rather than one per
+    (rule, file) pair. ctx.release_tus() then frees that AST before the
+    next file, so peak memory doesn't grow with the file list."""
+    rules = [
+        make_rule(mod.RULE_ID, mod.RULE_DESCRIPTION, getattr(mod, "RULE_HELP_URI", None))
+        for mod in plugins
+    ]
     results = []
-    abs_files = [os.path.abspath(f) for f in files]
 
-    for mod in plugins:
-        rules.append(make_rule(mod.RULE_ID, mod.RULE_DESCRIPTION, getattr(mod, "RULE_HELP_URI", None)))
-        ctx.current_rule_id = mod.RULE_ID
-        for f in abs_files:
-            try:
-                found = mod.check(ctx, f) or []
-            except Exception as e:
-                print(f"# [{mod.RULE_ID}] raised on {f}: {e!r}", file=sys.stderr)
-                continue
-            results.extend(found)
+    for f in [os.path.abspath(f) for f in files]:
+        try:
+            for mod in plugins:
+                ctx.current_rule_id = mod.RULE_ID
+                try:
+                    found = mod.check(ctx, f) or []
+                except Exception as e:
+                    print(f"# [{mod.RULE_ID}] raised on {f}: {e!r}", file=sys.stderr)
+                    continue
+                results.extend(found)
+        finally:
+            ctx.current_rule_id = None
+            ctx.release_tus()
 
-    ctx.current_rule_id = None
     return rules, results
 
 
